@@ -8,7 +8,11 @@ from database import Base, motor, sessionLocal
 
 from models import Producto, Venta
 # Traemos las clases-tabla, para poder crear y consultar registros de cada una.
-
+#---
+from fastapi.responses import FileResponse
+import pandas as pd
+from borb.pdf import Document, Page, SingleColumnLayout, Paragraph, PDF, FixedColumnWidthTable as Table
+#---
 Base.metadata.create_all(motor)#crea las tablas de verdad
 # Acá se crea DE VERDAD el archivo mi_bd.db (si no existía),
 # con las tablas "productos" y "Ventas" adentro, según la forma definida en models.py.
@@ -156,3 +160,47 @@ def borrarVenta(id_v:int):
     db.delete(borrar)
     db.commit()
     db.close()
+
+@app.get("/reportes/ventas")
+#genera un PDF con el listado de todas las ventas registradas
+def reporteVentas():
+    db=sessionLocal()
+    ventas=db.query(Venta).all()#traemos todas las ventas de la base
+    db.close()
+
+    #armamos los datos en una tabla de pandas, mas facil de ordenar
+    datos=[]
+    for v in ventas:
+        datos.append({
+            "id":v.id_ventas,
+            "fecha":str(v.fecha),
+            "hora":str(v.hora),
+            "producto_id":v.id_ProductoFK,
+            "cantidad":v.cantidad,
+            "total":v.precioTotal
+        })
+    df=pd.DataFrame(datos)
+
+    #armamos el documento PDF con borb
+    doc=Document()
+    page=Page()
+    doc.append_page(page)
+    layout=SingleColumnLayout(page)
+    layout.append_layout_element(Paragraph("Reporte de Ventas"))
+
+    tabla=Table(number_of_rows=len(df)+1, number_of_columns=6)
+    encabezados=["ID","Fecha","Hora","Producto","Cantidad","Total"]
+    for e in encabezados:
+        tabla.append_layout_element(Paragraph(e))
+    for _, fila in df.iterrows():
+        tabla.append_layout_element(Paragraph(str(fila["id"])))
+        tabla.append_layout_element(Paragraph(fila["fecha"]))
+        tabla.append_layout_element(Paragraph(fila["hora"]))
+        tabla.append_layout_element(Paragraph(str(fila["producto_id"])))
+        tabla.append_layout_element(Paragraph(str(fila["cantidad"])))
+        tabla.append_layout_element(Paragraph(str(fila["total"])))
+    layout.append_layout_element(tabla)
+
+    PDF.write(what=doc, where_to="reporte_ventas.pdf")
+
+    return FileResponse("reporte_ventas.pdf", media_type="application/pdf", filename="reporte_ventas.pdf")
